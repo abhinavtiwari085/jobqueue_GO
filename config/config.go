@@ -13,6 +13,7 @@ var (
 	DB_USER     string
 	DB_PASSWORD string
 	DB_NAME     string
+	MAX_ATTEMPT string
 )
 
 func LoadEnv() {
@@ -39,5 +40,9 @@ func LoadEnv() {
 	DB_NAME = os.Getenv("DB_NAME")
 	if DB_NAME == "" {
 		fmt.Println("Error: DB_NAME environment variable is not set")
+	}
+	MAX_ATTEMPT = os.Getenv("MAX_ATTEMPT")
+	if MAX_ATTEMPT != "3" {
+		fmt.Println("Error: MAX_ATTEMPTS environment variable is not set")
 	}
 }

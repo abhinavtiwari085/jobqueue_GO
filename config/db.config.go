@@ -8,8 +8,8 @@ import (
 	_ "github.com/lib/pq"
 )
 
-//CREATE TABLE jobs(job_id BIGSERIAL PRIMARY KEY, command TEXT NOT NULL, state VARCHAR(20) NOT NULL, attempt_counts INT NOT NULL DEFAULT 0);
-func DbConfig() {
+// CREATE TABLE jobs(job_id BIGSERIAL PRIMARY KEY, command TEXT NOT NULL, state VARCHAR(20) NOT NULL, attempt_counts INT NOT NULL DEFAULT 0);
+func DbConfig() (*sql.DB, error) {
 	port, err := strconv.Atoi(DB_PORT)
 	if err != nil {
 		panic("Invalid DB_PORT")
@@ -24,7 +24,6 @@ func DbConfig() {
 	if err != nil {
 		panic(err)
 	}
-	defer db.Close()
 
 	err = db.Ping()
 	if err != nil {
@@ -32,4 +31,6 @@ func DbConfig() {
 	}
 
 	fmt.Println("Successfully connected!")
+	return db, nil
+
 }
