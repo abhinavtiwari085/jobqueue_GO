@@ -8,6 +8,7 @@ import (
 	"jobqueue/services"
 	"log"
 	"os/exec"
+	"sync"
 
 	_ "github.com/joho/godotenv/autoload"
 	_ "github.com/lib/pq"
@@ -23,32 +24,43 @@ func runJobLogic(db *sql.DB, job *modules.Job) {
 	}
 
 	for attempt := job.AttemptCount + 1; attempt <= maxAttempts; attempt++ {
-		fmt.Printf("Running job %d (attempt %d)\n", job.JobID, attempt)
+		fmt.Printf("Running job %s (attempt %d)\n", job.JobID, attempt)
 
 		cmd := exec.Command("cmd", "/C", job.Command)
 		output, err := cmd.CombinedOutput()
 
 		if err == nil {
-			fmt.Printf("Job %d succeeded\n", job.JobID)
+			fmt.Printf("Job %s succeeded\n", job.JobID)
 			fmt.Println("Output:", string(output))
 			_ = services.UpdateJobState(db, job.JobID, "COMPLETED", false)
-			break
+			return
 		}
 
-		fmt.Printf("Job %s failed: %v\n", job.JobID, err)
+		fmt.Printf("Job %s failed (attempt %d): %v\n", job.JobID, attempt, err)
 		fmt.Println("Output:", string(output))
 
+		// increment attempt count in DB and keep as in-progress
 		_ = services.UpdateJobState(db, job.JobID, "IN_PROGRESS", true)
 
 		if attempt == maxAttempts {
-			fmt.Printf("Job %d reached max attempts\n", job.JobID)
+			fmt.Printf("Job %s reached max attempts\n", job.JobID)
 			_ = services.UpdateJobState(db, job.JobID, "FAILED", false)
+			return
 		}
 	}
 }
 
+func worker(workerID int, db *sql.DB, jobQueue <-chan *modules.Job, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for job := range jobQueue {
+		fmt.Printf("[worker %d] picked job %s\n", workerID, job.JobID)
+		runJobLogic(db, job)
+	}
+}
+
 func main() {
-	// Get DB connection
+	// Load config and connect DB
 	config.LoadEnv()
 	db, err := config.DbConfig()
 	if err != nil {
@@ -57,41 +69,56 @@ func main() {
 	}
 	defer db.Close()
 
-	// Call CreateJob
-	jobID, err := services.CreateJob(db, "ping google.com")
+	// Create jobs (same as your example)
+	createdJobID1, err := services.CreateJob(db, "ping google.com")
 	if err != nil {
-		fmt.Println("Error creating job:", err)
-		log.Fatal(err)
+		log.Fatal("Error creating job:", err)
 	}
+	fmt.Println("Created job with ID:", createdJobID1)
 
-	fmt.Println("Created job with ID:", jobID)
-
-	jobID2, err := services.CreateJob(db, "echo hello world")
+	createdJobID2, err := services.CreateJob(db, "echo hello world")
 	if err != nil {
-		fmt.Println("Error creating job:", err)
-		log.Fatal(err)
+		log.Fatal("Error creating job:", err)
 	}
-	fmt.Println("Created job with ID:", jobID2)
+	fmt.Println("Created job with ID:", createdJobID2)
 
-	jobID3, err := services.CreateJob(db, "ech hello world")
+	createdJobID3, err := services.CreateJob(db, "ech hello world") // will fail
 	if err != nil {
-		fmt.Println("Error creating job:", err)
-		log.Fatal(err)
+		log.Fatal("Error creating job:", err)
 	}
-
-	fmt.Println("Created job with ID:", jobID3)
+	fmt.Println("Created job with ID:", createdJobID3)
 
 	// Fetch waiting jobs
-	jobs, err := services.GetWaitingJobs(db)
+	waitingJobs, err := services.GetWaitingJobs(db)
 	if err != nil {
 		fmt.Println("Error fetching waiting jobs:", err)
 		log.Fatal(err)
 	}
-	fmt.Println("Waiting Jobs:")
+	fmt.Println("Waiting Jobs:", len(waitingJobs))
 
-	for _, job := range jobs {
-		//logic area start
-		runJobLogic(db, job)
-		//logic area end
+	// --- Worker pool setup ---
+	const workerCount = 3
+	jobQueueBufferSize := len(waitingJobs) // buffer enough for all jobs (or use a fixed number like 100)
+
+	jobQueue := make(chan *modules.Job, jobQueueBufferSize)
+	var workersWg sync.WaitGroup
+
+	// Start N workers
+	for workerID := 1; workerID <= workerCount; workerID++ {
+		workersWg.Add(1)
+		go worker(workerID, db, jobQueue, &workersWg)
 	}
+
+	// Send jobs to workers
+	for _, job := range waitingJobs {
+		jobQueue <- job
+	}
+
+	// Close queue so workers exit after finishing
+	close(jobQueue)
+
+	// Wait for all workers to finish
+	workersWg.Wait()
+
+	fmt.Println("All jobs completed (workers stopped)")
 }
