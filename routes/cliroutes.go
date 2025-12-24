@@ -38,7 +38,7 @@ func Dispatch(db *sql.DB, args []string) {
 			}
 			cnt = v
 		}
-		controllers.StopWorkerController(db, cnt)
+		controllers.StartWorkerController(db, cnt)
 
 	case "stopworker":
 		controllers.StopWorkerController(db)

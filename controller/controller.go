@@ -9,24 +9,30 @@ import (
 	"sync"
 )
 
+var jobQueue chan *modules.Job
+var workersWg sync.WaitGroup
+var workerCount int
+var workerRunning bool
+var workerMu sync.Mutex
+
 func worker(workerID int, db *sql.DB, jobQueue <-chan *modules.Job, wg *sync.WaitGroup) {
 	defer wg.Done()
-
 	for job := range jobQueue {
 		fmt.Printf("[worker %d] picked job %d\n", workerID, job.JobID)
 		services.RunJobLogic(db, job)
 	}
 }
 
-func CreateJobController(db *sql.DB, args []string) {
-	createdJobID1, err := services.CreateJob(db, args[0])
-	if err != nil {
-		log.Fatal("Error creating job:", err)
-	}
-	fmt.Println("Created job with ID:", createdJobID1)
-}
-
 func StartWorkerController(db *sql.DB, cnt int) {
+	workerMu.Lock()
+	if workerRunning {
+		workerMu.Unlock()
+		fmt.Println("Workers already running")
+		return
+	}
+	workerRunning = true
+	workerMu.Unlock()
+
 	waitingJobs, err := services.GetWaitingJobs(db)
 	if err != nil {
 		fmt.Println("Error fetching waiting jobs:", err)
@@ -34,33 +40,47 @@ func StartWorkerController(db *sql.DB, cnt int) {
 	}
 	fmt.Println("Waiting Jobs:", len(waitingJobs))
 
-	// --- Worker pool setup ---
-	workerCount := cnt
-	jobQueueBufferSize := len(waitingJobs) // buffer enough for all jobs (or use a fixed number like 100)
+	workerCount = cnt
+	jobQueueBufferSize := len(waitingJobs)
+	if jobQueueBufferSize == 0 {
+		jobQueueBufferSize = 1
+	}
+	jobQueue = make(chan *modules.Job, jobQueueBufferSize)
 
-	jobQueue := make(chan *modules.Job, jobQueueBufferSize)
-	var workersWg sync.WaitGroup
-
-	// Start N workers
 	for workerID := 1; workerID <= workerCount; workerID++ {
 		workersWg.Add(1)
 		go worker(workerID, db, jobQueue, &workersWg)
 	}
 
-	// Send jobs to workers
 	for _, job := range waitingJobs {
 		jobQueue <- job
 	}
-
-	// Close queue so workers exit after finishing
-	close(jobQueue)
-
-	// Wait for all workers to finish
-	workersWg.Wait()
 }
 
 func StopWorkerController(db *sql.DB) {
+	workerMu.Lock()
+	if !workerRunning {
+		workerMu.Unlock()
+		fmt.Println("Workers are not running")
+		return
+	}
+	workerRunning = false
+	workerMu.Unlock()
 
+	close(jobQueue)
+	workersWg.Wait()
+}
+
+func CreateJobController(db *sql.DB, args []string) {
+	if len(args > 0) {
+		createdJobID1, err := services.CreateJob(db, args[0])
+		if err != nil {
+			log.Fatal("Error creating job:", err)
+		}
+		fmt.Println("Created job with ID:", createdJobID1)
+	} else {
+		fmt.Println("provide command to create job")
+	}
 }
 
 func ListJobsController(db *sql.DB, args []string) {
