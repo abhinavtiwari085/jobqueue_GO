@@ -13,7 +13,7 @@ func worker(workerID int, db *sql.DB, jobQueue <-chan *modules.Job, wg *sync.Wai
 	defer wg.Done()
 
 	for job := range jobQueue {
-		fmt.Printf("[worker %d] picked job %s\n", workerID, job.JobID)
+		fmt.Printf("[worker %d] picked job %d\n", workerID, job.JobID)
 		services.RunJobLogic(db, job)
 	}
 }
@@ -26,7 +26,7 @@ func CreateJobController(db *sql.DB, args []string) {
 	fmt.Println("Created job with ID:", createdJobID1)
 }
 
-func StartWorkerController(db *sql.DB) {
+func StartWorkerController(db *sql.DB, cnt int) {
 	waitingJobs, err := services.GetWaitingJobs(db)
 	if err != nil {
 		fmt.Println("Error fetching waiting jobs:", err)
@@ -35,7 +35,7 @@ func StartWorkerController(db *sql.DB) {
 	fmt.Println("Waiting Jobs:", len(waitingJobs))
 
 	// --- Worker pool setup ---
-	const workerCount = 3
+	workerCount := cnt
 	jobQueueBufferSize := len(waitingJobs) // buffer enough for all jobs (or use a fixed number like 100)
 
 	jobQueue := make(chan *modules.Job, jobQueueBufferSize)
@@ -59,7 +59,7 @@ func StartWorkerController(db *sql.DB) {
 	workersWg.Wait()
 }
 
-func StopWorkerController() {
+func StopWorkerController(db *sql.DB) {
 
 }
 

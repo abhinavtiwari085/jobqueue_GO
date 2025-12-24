@@ -3,9 +3,10 @@ package routes
 import (
 	"database/sql"
 	"fmt"
-	"jobqueue/controllers"
 	"jobqueue/modules"
 	"strconv"
+
+	"jobqueue/controllers"
 )
 
 func isValidState(s string) bool {
@@ -24,7 +25,7 @@ func Dispatch(db *sql.DB, args []string) {
 	switch args[0] {
 
 	case "createjob":
-		controllers.CreateJob(db, args[1:])
+		controllers.CreateJobController(db, args[1:])
 
 	case "startworker":
 		cnt := 1
@@ -37,13 +38,13 @@ func Dispatch(db *sql.DB, args []string) {
 			}
 			cnt = v
 		}
-		controllers.StartWorker(db, cnt)
+		controllers.StopWorkerController(db, cnt)
 
 	case "stopworker":
-		controllers.StopWorker(db)
+		controllers.StopWorkerController(db)
 
 	case "status":
-		controllers.Status(db)
+		controllers.GetStatusController(db)
 
 	case "listjob":
 		if len(args) < 2 {
@@ -60,7 +61,7 @@ func Dispatch(db *sql.DB, args []string) {
 			return
 		}
 
-		controllers.ListJob(db, state)
+		controllers.ListJobsController(db, args[1:])
 
 	default:
 		fmt.Println("wrong command")
